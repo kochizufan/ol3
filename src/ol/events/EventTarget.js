@@ -83,7 +83,10 @@ EventTarget.prototype.addEventListener = function(type, listener) {
 EventTarget.prototype.dispatchEvent = function(event) {
   const evt = typeof event === 'string' ? new Event(event) : event;
   const type = evt.type;
-  evt.target = this;
+  try {
+    evt.target = this;
+  } catch (e) {
+  }
   const listeners = this.listeners_[type];
   let propagate;
   if (listeners) {
