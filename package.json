@@ -20,7 +20,7 @@
     "prebuild": "npm run set-version && npm run build-index",
     "prepare": "npm run set-version",
     "build": "rollup --config config/rollup.js && cleancss --source-map src/ol/ol.css -o build/ol.css",
-    "build-debug": "rollup --config config/rollup_debug.js && cp src/ol/ol.css build/ol-debug.css",
+    "build-maplat": "rollup --config config/rollup_maplat.js && cp src/ol/ol.css build/ol-maplat.css",
     "presrc-closure": "npm run prebuild",
     "src-closure": "node tasks/transform-types",
     "pretypecheck": "npm run src-closure",
