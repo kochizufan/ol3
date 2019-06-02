@@ -7,7 +7,7 @@ import {OSM, Raster, XYZ} from '../src/ol/source.js';
 /**
  * Generates a shaded relief image given elevation data.  Uses a 3x3
  * neighborhood for determining slope and aspect.
- * @param {Array.<ImageData>} inputs Array of input images.
+ * @param {Array<ImageData>} inputs Array of input images.
  * @param {Object} data Data added in the "beforeoperations" event.
  * @return {ImageData} Output image.
  */
@@ -100,8 +100,7 @@ function shade(inputs, data) {
 
 const elevation = new XYZ({
   url: 'https://{a-d}.tiles.mapbox.com/v3/aj.sf-dem/{z}/{x}/{y}.png',
-  crossOrigin: 'anonymous',
-  transition: 0
+  crossOrigin: 'anonymous'
 });
 
 const raster = new Raster({

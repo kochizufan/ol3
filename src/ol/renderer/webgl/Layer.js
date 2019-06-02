@@ -1,265 +1,162 @@
 /**
  * @module ol/renderer/webgl/Layer
  */
-import {inherits} from '../../util.js';
-import RenderEvent from '../../render/Event.js';
-import RenderEventType from '../../render/EventType.js';
-import WebGLImmediateRenderer from '../../render/webgl/Immediate.js';
 import LayerRenderer from '../Layer.js';
-import {fragment, vertex} from '../webgl/defaultmapshader.js';
-import Locations from '../webgl/defaultmapshader/Locations.js';
-import {create as createTransform} from '../../transform.js';
-import {create, fromTransform} from '../../vec/mat4.js';
-import {ARRAY_BUFFER, FRAMEBUFFER, FLOAT, TEXTURE_2D,
-  TRIANGLE_STRIP, COLOR_ATTACHMENT0} from '../../webgl.js';
-import WebGLBuffer from '../../webgl/Buffer.js';
-import {createEmptyTexture} from '../../webgl/Context.js';
-
-/**
- * @constructor
- * @abstract
- * @extends {module:ol/renderer/Layer}
- * @param {module:ol/renderer/webgl/Map} mapRenderer Map renderer.
- * @param {module:ol/layer/Layer} layer Layer.
- */
-const WebGLLayerRenderer = function(mapRenderer, layer) {
-
-  LayerRenderer.call(this, layer);
-
-  /**
-   * @protected
-   * @type {module:ol/renderer/webgl/Map}
-   */
-  this.mapRenderer = mapRenderer;
-
-  /**
-   * @private
-   * @type {module:ol/webgl/Buffer}
-   */
-  this.arrayBuffer_ = new WebGLBuffer([
-    -1, -1, 0, 0,
-    1, -1, 1, 0,
-    -1, 1, 0, 1,
-    1, 1, 1, 1
-  ]);
-
-  /**
-   * @protected
-   * @type {WebGLTexture}
-   */
-  this.texture = null;
-
-  /**
-   * @protected
-   * @type {WebGLFramebuffer}
-   */
-  this.framebuffer = null;
-
-  /**
-   * @protected
-   * @type {number|undefined}
-   */
-  this.framebufferDimension = undefined;
-
-  /**
-   * @protected
-   * @type {module:ol/transform~Transform}
-   */
-  this.texCoordMatrix = createTransform();
-
-  /**
-   * @protected
-   * @type {module:ol/transform~Transform}
-   */
-  this.projectionMatrix = createTransform();
-
-  /**
-   * @type {Array.<number>}
-   * @private
-   */
-  this.tmpMat4_ = create();
-
-  /**
-   * @private
-   * @type {module:ol/renderer/webgl/defaultmapshader/Locations}
-   */
-  this.defaultLocations_ = null;
-
-};
-
-inherits(WebGLLayerRenderer, LayerRenderer);
+import WebGLHelper from '../../webgl/Helper.js';
 
 
 /**
- * @param {module:ol/PluggableMap~FrameState} frameState Frame state.
- * @param {number} framebufferDimension Framebuffer dimension.
- * @protected
+ * @typedef {Object} PostProcessesOptions
+ * @property {number} [scaleRatio] Scale ratio; if < 1, the post process will render to a texture smaller than
+ * the main canvas that will then be sampled up (useful for saving resource on blur steps).
+ * @property {string} [vertexShader] Vertex shader source
+ * @property {string} [fragmentShader] Fragment shader source
+ * @property {Object.<string,import("../../webgl/Helper").UniformValue>} [uniforms] Uniform definitions for the post process step
  */
-WebGLLayerRenderer.prototype.bindFramebuffer = function(frameState, framebufferDimension) {
 
-  const gl = this.mapRenderer.getGL();
+/**
+ * @typedef {Object} Options
+ * @property {Object.<string,import("../../webgl/Helper").UniformValue>} [uniforms] Uniform definitions for the post process steps
+ * @property {Array<PostProcessesOptions>} [postProcesses] Post-processes definitions
+ */
 
-  if (this.framebufferDimension === undefined ||
-      this.framebufferDimension != framebufferDimension) {
-    /**
-     * @param {WebGLRenderingContext} gl GL.
-     * @param {WebGLFramebuffer} framebuffer Framebuffer.
-     * @param {WebGLTexture} texture Texture.
-     */
-    const postRenderFunction = function(gl, framebuffer, texture) {
-      if (!gl.isContextLost()) {
-        gl.deleteFramebuffer(framebuffer);
-        gl.deleteTexture(texture);
-      }
-    }.bind(null, gl, this.framebuffer, this.texture);
+/**
+ * @classdesc
+ * Base WebGL renderer class.
+ * Holds all logic related to data manipulation & some common rendering logic
+ */
+class WebGLLayerRenderer extends LayerRenderer {
 
-    frameState.postRenderFunctions.push(
-      /** @type {module:ol/PluggableMap~PostRenderFunction} */ (postRenderFunction)
-    );
+  /**
+   * @param {import("../../layer/Layer.js").default} layer Layer.
+   * @param {Options=} [opt_options] Options.
+   */
+  constructor(layer, opt_options) {
+    super(layer);
 
-    const texture = createEmptyTexture(
-      gl, framebufferDimension, framebufferDimension);
+    const options = opt_options || {};
 
-    const framebuffer = gl.createFramebuffer();
-    gl.bindFramebuffer(FRAMEBUFFER, framebuffer);
-    gl.framebufferTexture2D(FRAMEBUFFER,
-      COLOR_ATTACHMENT0, TEXTURE_2D, texture, 0);
-
-    this.texture = texture;
-    this.framebuffer = framebuffer;
-    this.framebufferDimension = framebufferDimension;
-
-  } else {
-    gl.bindFramebuffer(FRAMEBUFFER, this.framebuffer);
+    this.helper_ = new WebGLHelper({
+      postProcesses: options.postProcesses,
+      uniforms: options.uniforms
+    });
   }
 
-};
+  /**
+   * @inheritDoc
+   */
+  disposeInternal() {
+    super.disposeInternal();
+  }
+
+  /**
+   * Will return the last shader compilation errors. If no error happened, will return null;
+   * @return {string|null} Errors, or null if last compilation was successful
+   * @api
+   */
+  getShaderCompileErrors() {
+    return this.helper_.getShaderCompileErrors();
+  }
+}
 
 
 /**
- * @param {module:ol/PluggableMap~FrameState} frameState Frame state.
- * @param {module:ol/layer/Layer~State} layerState Layer state.
- * @param {module:ol/webgl/Context} context Context.
+ * Pushes vertices and indices to the given buffers using the geometry coordinates and the following properties
+ * from the feature:
+ * - `color`
+ * - `opacity`
+ * - `size` (for points)
+ * - `u0`, `v0`, `u1`, `v1` (for points)
+ * - `rotateWithView` (for points)
+ * - `width` (for lines)
+ * Custom attributes can be designated using the `opt_attributes` argument, otherwise other properties on the
+ * feature will be ignored.
+ * @param {import("../../webgl/Buffer").default} vertexBuffer WebGL buffer in which new vertices will be pushed.
+ * @param {import("../../webgl/Buffer").default} indexBuffer WebGL buffer in which new indices will be pushed.
+ * @param {import("../../format/GeoJSON").GeoJSONFeature} geojsonFeature Feature in geojson format, coordinates
+ * expressed in EPSG:4326.
+ * @param {Array<string>} [opt_attributes] Custom attributes. An array of properties which will be read from the
+ * feature and pushed in the buffer in the given order. Note: attributes can only be numerical! Any other type or
+ * NaN will result in `0` being pushed in the buffer.
  */
-WebGLLayerRenderer.prototype.composeFrame = function(frameState, layerState, context) {
-
-  this.dispatchComposeEvent_(RenderEventType.PRECOMPOSE, context, frameState);
-
-  context.bindBuffer(ARRAY_BUFFER, this.arrayBuffer_);
-
-  const gl = context.getGL();
-
-  const program = context.getProgram(fragment, vertex);
-
-  let locations;
-  if (!this.defaultLocations_) {
-    locations = new Locations(gl, program);
-    this.defaultLocations_ = locations;
-  } else {
-    locations = this.defaultLocations_;
+export function pushFeatureToBuffer(vertexBuffer, indexBuffer, geojsonFeature, opt_attributes) {
+  if (!geojsonFeature.geometry) {
+    return;
   }
-
-  if (context.useProgram(program)) {
-    gl.enableVertexAttribArray(locations.a_position);
-    gl.vertexAttribPointer(
-      locations.a_position, 2, FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(locations.a_texCoord);
-    gl.vertexAttribPointer(
-      locations.a_texCoord, 2, FLOAT, false, 16, 8);
-    gl.uniform1i(locations.u_texture, 0);
+  switch (geojsonFeature.geometry.type) {
+    case 'Point':
+      pushPointFeatureToBuffer_(vertexBuffer, indexBuffer, geojsonFeature, opt_attributes);
+      return;
+    default:
+      return;
   }
+}
 
-  gl.uniformMatrix4fv(locations.u_texCoordMatrix, false,
-    fromTransform(this.tmpMat4_, this.getTexCoordMatrix()));
-  gl.uniformMatrix4fv(locations.u_projectionMatrix, false,
-    fromTransform(this.tmpMat4_, this.getProjectionMatrix()));
-  gl.uniform1f(locations.u_opacity, layerState.opacity);
-  gl.bindTexture(TEXTURE_2D, this.getTexture());
-  gl.drawArrays(TRIANGLE_STRIP, 0, 4);
-
-  this.dispatchComposeEvent_(RenderEventType.POSTCOMPOSE, context, frameState);
-};
-
+const tmpArray_ = [];
 
 /**
- * @param {module:ol/render/EventType} type Event type.
- * @param {module:ol/webgl/Context} context WebGL context.
- * @param {module:ol/PluggableMap~FrameState} frameState Frame state.
+ * Pushes a quad (two triangles) based on a point geometry
+ * @param {import("../../webgl/Buffer").default} vertexBuffer WebGL buffer
+ * @param {import("../../webgl/Buffer").default} indexBuffer WebGL buffer
+ * @param {import("../../format/GeoJSON").GeoJSONFeature} geojsonFeature Feature
+ * @param {Array<string>} [opt_attributes] Custom attributes
  * @private
  */
-WebGLLayerRenderer.prototype.dispatchComposeEvent_ = function(type, context, frameState) {
-  const layer = this.getLayer();
-  if (layer.hasListener(type)) {
-    const viewState = frameState.viewState;
-    const resolution = viewState.resolution;
-    const pixelRatio = frameState.pixelRatio;
-    const extent = frameState.extent;
-    const center = viewState.center;
-    const rotation = viewState.rotation;
-    const size = frameState.size;
+function pushPointFeatureToBuffer_(vertexBuffer, indexBuffer, geojsonFeature, opt_attributes) {
+  const stride = 12 + (opt_attributes !== undefined ? opt_attributes.length : 0);
 
-    const render = new WebGLImmediateRenderer(
-      context, center, resolution, rotation, size, extent, pixelRatio);
-    const composeEvent = new RenderEvent(
-      type, render, frameState, null, context);
-    layer.dispatchEvent(composeEvent);
+  const x = geojsonFeature.geometry.coordinates[0];
+  const y = geojsonFeature.geometry.coordinates[1];
+  const u0 = geojsonFeature.properties.u0;
+  const v0 = geojsonFeature.properties.v0;
+  const u1 = geojsonFeature.properties.u1;
+  const v1 = geojsonFeature.properties.v1;
+  const size = geojsonFeature.properties.size;
+  const opacity = geojsonFeature.properties.opacity;
+  const rotateWithView = geojsonFeature.properties.rotateWithView;
+  const color = geojsonFeature.properties.color;
+  const red = color[0];
+  const green = color[1];
+  const blue = color[2];
+  const alpha = color[3];
+  const baseIndex = vertexBuffer.getArray().length / stride;
+
+  // read custom numerical attributes on the feature
+  const customAttributeValues = tmpArray_;
+  customAttributeValues.length = opt_attributes ? opt_attributes.length : 0;
+  for (let i = 0; i < customAttributeValues.length; i++) {
+    customAttributeValues[i] = parseFloat(geojsonFeature.properties[opt_attributes[i]]) || 0;
   }
-};
 
+  // push vertices for each of the four quad corners (first standard then custom attributes)
+  vertexBuffer.getArray().push(x, y, -size / 2, -size / 2, u0, v0, opacity, rotateWithView, red, green, blue, alpha);
+  Array.prototype.push.apply(vertexBuffer.getArray(), customAttributeValues);
 
-/**
- * @return {!module:ol/transform~Transform} Matrix.
- */
-WebGLLayerRenderer.prototype.getTexCoordMatrix = function() {
-  return this.texCoordMatrix;
-};
+  vertexBuffer.getArray().push(x, y, +size / 2, -size / 2, u1, v0, opacity, rotateWithView, red, green, blue, alpha);
+  Array.prototype.push.apply(vertexBuffer.getArray(), customAttributeValues);
 
+  vertexBuffer.getArray().push(x, y, +size / 2, +size / 2, u1, v1, opacity, rotateWithView, red, green, blue, alpha);
+  Array.prototype.push.apply(vertexBuffer.getArray(), customAttributeValues);
 
-/**
- * @return {WebGLTexture} Texture.
- */
-WebGLLayerRenderer.prototype.getTexture = function() {
-  return this.texture;
-};
+  vertexBuffer.getArray().push(x, y, -size / 2, +size / 2, u0, v1, opacity, rotateWithView, red, green, blue, alpha);
+  Array.prototype.push.apply(vertexBuffer.getArray(), customAttributeValues);
 
-
-/**
- * @return {!module:ol/transform~Transform} Matrix.
- */
-WebGLLayerRenderer.prototype.getProjectionMatrix = function() {
-  return this.projectionMatrix;
-};
-
+  indexBuffer.getArray().push(
+    baseIndex, baseIndex + 1, baseIndex + 3,
+    baseIndex + 1, baseIndex + 2, baseIndex + 3
+  );
+}
 
 /**
- * Handle webglcontextlost.
+ * Returns a texture of 1x1 pixel, white
+ * @private
+ * @return {ImageData} Image data.
  */
-WebGLLayerRenderer.prototype.handleWebGLContextLost = function() {
-  this.texture = null;
-  this.framebuffer = null;
-  this.framebufferDimension = undefined;
-};
+export function getBlankTexture() {
+  const canvas = document.createElement('canvas');
+  const image = canvas.getContext('2d').createImageData(1, 1);
+  image.data[0] = image.data[1] = image.data[2] = image.data[3] = 255;
+  return image;
+}
 
-
-/**
- * @abstract
- * @param {module:ol/PluggableMap~FrameState} frameState Frame state.
- * @param {module:ol/layer/Layer~State} layerState Layer state.
- * @param {module:ol/webgl/Context} context Context.
- * @return {boolean} whether composeFrame should be called.
- */
-WebGLLayerRenderer.prototype.prepareFrame = function(frameState, layerState, context) {};
-
-
-/**
- * @abstract
- * @param {module:ol~Pixel} pixel Pixel.
- * @param {module:ol/PluggableMap~FrameState} frameState FrameState.
- * @param {function(this: S, module:ol/layer/Layer, (Uint8ClampedArray|Uint8Array)): T} callback Layer
- *     callback.
- * @param {S} thisArg Value to use as `this` when executing `callback`.
- * @return {T|undefined} Callback result.
- * @template S,T,U
- */
-WebGLLayerRenderer.prototype.forEachLayerAtPixel = function(pixel, frameState, callback, thisArg) {};
 export default WebGLLayerRenderer;

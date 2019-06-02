@@ -1,7 +1,6 @@
 /**
  * @module ol/math
  */
-import {assert} from './asserts.js';
 
 /**
  * Takes a number and clamps it to within the provided bounds.
@@ -25,7 +24,7 @@ export function clamp(value, min, max) {
  * @param {number} x X.
  * @return {number} Hyperbolic cosine of x.
  */
-export const cosh  = (function() {
+export const cosh = (function() {
   // Wrapped in a iife, to save the overhead of checking for the native
   // implementation on every invocation.
   let cosh;
@@ -35,22 +34,12 @@ export const cosh  = (function() {
   } else {
     // … else, use the reference implementation of MDN:
     cosh = function(x) {
-      const y = Math.exp(x);
+      const y = /** @type {Math} */ (Math).exp(x);
       return (y + 1 / y) / 2;
     };
   }
   return cosh;
 }());
-
-
-/**
- * @param {number} x X.
- * @return {number} The smallest power of two greater than or equal to x.
- */
-export function roundUpToPowerOfTwo(x) {
-  assert(0 < x, 29); // `x` must be greater than `0`
-  return Math.pow(2, Math.ceil(Math.log(x) / Math.LN2));
-}
 
 
 /**
@@ -99,9 +88,9 @@ export function squaredDistance(x1, y1, x2, y2) {
 /**
  * Solves system of linear equations using Gaussian elimination method.
  *
- * @param {Array.<Array.<number>>} mat Augmented matrix (n x n + 1 column)
+ * @param {Array<Array<number>>} mat Augmented matrix (n x n + 1 column)
  *                                     in row-major order.
- * @return {Array.<number>} The resulting vector.
+ * @return {Array<number>} The resulting vector.
  */
 export function solveLinearSystem(mat) {
   const n = mat.length;

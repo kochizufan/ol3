@@ -1,4 +1,3 @@
-import {getUid} from '../../../../../src/ol/index.js';
 import Feature from '../../../../../src/ol/Feature.js';
 import Map from '../../../../../src/ol/Map.js';
 import View from '../../../../../src/ol/View.js';
@@ -76,7 +75,7 @@ describe('ol.renderer.canvas.VectorLayer', function() {
         style: layerStyle
       });
       map.addLayer(layer);
-      const spy = sinon.spy(map.getRenderer().getLayerRenderer(layer),
+      const spy = sinon.spy(layer.getRenderer(),
         'renderFeature');
       map.renderSync();
       expect(spy.getCall(0).args[3]).to.be(layerStyle);
@@ -203,14 +202,13 @@ describe('ol.renderer.canvas.VectorLayer', function() {
       const spy = sinon.spy();
       const coordinate = [0, 0];
       const frameState = {
-        layerStates: {},
+        layerStatesArray: [{}],
         skippedFeatureUids: {},
         viewState: {
           resolution: 1,
           rotation: 0
         }
       };
-      frameState.layerStates[getUid(layer)] = {};
       renderer.forEachFeatureAtCoordinate(
         coordinate, frameState, 0, spy, undefined);
       expect(spy.callCount).to.be(1);
@@ -218,7 +216,7 @@ describe('ol.renderer.canvas.VectorLayer', function() {
     });
   });
 
-  describe('#prepareFrame', function() {
+  describe('#prepareFrame and #compose', function() {
     let frameState, projExtent, renderer, worldWidth, buffer;
 
     beforeEach(function() {
@@ -245,7 +243,7 @@ describe('ol.renderer.canvas.VectorLayer', function() {
 
       frameState.extent =
           [projExtent[0] - 10000, -10000, projExtent[0] + 10000, 10000];
-      renderer.prepareFrame(frameState, {});
+      renderer.prepareFrame(frameState);
       expect(renderer.replayGroup_.maxExtent_).to.eql(bufferExtent([
         projExtent[0] - worldWidth + buffer,
         -10000, projExtent[2] + worldWidth - buffer, 10000
@@ -257,7 +255,7 @@ describe('ol.renderer.canvas.VectorLayer', function() {
 
       frameState.extent =
           [projExtent[0] - 10000, -10000, projExtent[1] - 10000, 10000];
-      renderer.prepareFrame(frameState, {});
+      renderer.prepareFrame(frameState);
       expect(renderer.replayGroup_.maxExtent_).to.eql(bufferExtent([
         projExtent[0] - worldWidth + buffer,
         -10000, projExtent[2] + worldWidth - buffer, 10000
@@ -268,7 +266,7 @@ describe('ol.renderer.canvas.VectorLayer', function() {
 
       frameState.extent =
           [2 * projExtent[0] - 10000, -10000, 2 * projExtent[1] + 10000, 10000];
-      renderer.prepareFrame(frameState, {});
+      renderer.prepareFrame(frameState);
       expect(renderer.replayGroup_.maxExtent_).to.eql(bufferExtent([
         projExtent[0] - worldWidth + buffer,
         -10000, projExtent[2] + worldWidth - buffer, 10000
@@ -281,7 +279,7 @@ describe('ol.renderer.canvas.VectorLayer', function() {
         projExtent[0] - 2 * worldWidth - 10000,
         -10000, projExtent[1] + 2 * worldWidth + 10000, 10000
       ];
-      renderer.prepareFrame(frameState, {});
+      renderer.prepareFrame(frameState);
       expect(renderer.replayGroup_.maxExtent_).to.eql(bufferExtent([
         projExtent[0] - 2 * worldWidth - 10000,
         -10000, projExtent[2] + 2 * worldWidth + 10000, 10000
@@ -290,10 +288,30 @@ describe('ol.renderer.canvas.VectorLayer', function() {
 
     it('sets replayGroupChanged correctly', function() {
       frameState.extent = [-10000, -10000, 10000, 10000];
-      renderer.prepareFrame(frameState, {});
+      renderer.prepareFrame(frameState);
       expect(renderer.replayGroupChanged).to.be(true);
-      renderer.prepareFrame(frameState, {});
+      renderer.prepareFrame(frameState);
       expect(renderer.replayGroupChanged).to.be(false);
+    });
+
+    it('dispatches a postrender event when rendering', function(done) {
+      const layer = renderer.getLayer();
+      layer.getSource().addFeature(new Feature(new Point([0, 0])));
+      layer.once('postrender', function() {
+        expect(true);
+        done();
+      });
+      frameState.layerStatesArray = [layer.getLayerState()];
+      frameState.layerIndex = 0;
+      frameState.extent = [-10000, -10000, 10000, 10000];
+      frameState.size = [100, 100];
+      frameState.viewState.center = [0, 0];
+      let rendered = false;
+      if (renderer.prepareFrame(frameState)) {
+        rendered = true;
+        renderer.renderFrame(frameState, null);
+      }
+      expect(rendered).to.be(true);
     });
 
   });

@@ -4,22 +4,17 @@ import Polygon from '../../../../src/ol/geom/Polygon.js';
 
 describe('ol.geom.MultiPolygon', function() {
 
-  it('can be constructed with a null geometry', function() {
+  it('cannot be constructed with a null geometry', function() {
     expect(function() {
       return new MultiPolygon(null);
-    }).not.to.throwException();
+    }).to.throwException();
   });
 
   describe('with a null MultiPolygon', function() {
 
-    let multiPolygon;
-    beforeEach(function() {
-      multiPolygon = new MultiPolygon(null);
-    });
-
     it('can append polygons', function() {
-      multiPolygon.appendPolygon(
-        new Polygon([[[0, 0], [0, 2], [1, 1], [2, 0]]]));
+      const multiPolygon = new MultiPolygon([
+        new Polygon([[[0, 0], [0, 2], [1, 1], [2, 0]]])]);
       expect(multiPolygon.getCoordinates()).to.eql(
         [[[[0, 0], [0, 2], [1, 1], [2, 0]]]]);
       multiPolygon.appendPolygon(
@@ -191,6 +186,17 @@ describe('ol.geom.MultiPolygon', function() {
 
     });
 
+  });
+
+  describe('#getArea', function() {
+
+    it('works with a clockwise and a counterclockwise Polygon', function() {
+      const multiPolygon = new MultiPolygon([
+        [[[1, 3], [1, 2], [0, 2], [1, 3]]], // clockwise polygon with area 0.5
+        [[[2, 1], [2, 0.5], [3, 1], [2, 1]]] // counterclockwise polygon with area 0.25
+      ]);
+      expect(multiPolygon.getArea()).to.be(0.75);
+    });
   });
 
   describe('#getInteriorPoints', function() {
